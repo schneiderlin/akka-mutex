@@ -2,6 +2,7 @@ package mutex
 
 import akka.actor.{ActorRef, ActorSystem}
 import akka.testkit.{TestActorRef, TestKit}
+import common.Timestamp
 import mutex.Protocol._
 import org.scalatest._
 

@@ -1,9 +1,11 @@
-package mutex
+package common
+
+
 
 case class Timestamp(num: Int, processPriority: Int) {
   def +(n: Int): Timestamp = Timestamp(num + n, processPriority)
 
-  //  def +(other: Timestamp) = Timestamp(num + other.num)
+  //  def +(other: common.Timestamp) = common.Timestamp(num + other.num)
   def >(other: Timestamp): Boolean = num > other.num
 
   def <(other: Timestamp): Boolean = num < other.num

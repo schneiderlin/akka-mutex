@@ -1,16 +1,15 @@
 package mutex
 
 import akka.actor.{Actor, ActorRef, Props}
-import mutex.Protocol.{WithTimestamp, _}
-import mutex.Protocol.WithTimestamp._
+import common._
+import mutex.Protocol._
 
 import scala.collection.mutable
 
-class Process(priority: Int) extends Actor {
+class Process(_priority: Int) extends Actor with Competitor {
 
-  var requestQueue: mutable.PriorityQueue[WithTimestamp] =
-    mutable.PriorityQueue.empty[WithTimestamp](implicitly[Ordering[WithTimestamp]].reverse)
-  var timestamp = Timestamp(0, priority)
+  override def priority: Int = _priority
+
   var peers: Set[ActorRef] = Set()
 
   var isHoldingResource: Boolean = false
@@ -22,11 +21,10 @@ class Process(priority: Int) extends Actor {
       if (isHoldingResource) {
         sender ! "already holding resource"
       } else {
-        val request = Request(self, getAndIncrementTimestamp())
+        val request = Request(self)
         peers foreach {
-          peer => peer ! request
+          peer => tell(peer, request)
         }
-        requestQueue.enqueue(request)
       }
     case ClientRelease =>
       if (!isHoldingResource) {
@@ -35,45 +33,38 @@ class Process(priority: Int) extends Actor {
         isHoldingResource = false
         filterQueue(self)
         peers foreach {
-          peer => peer ! Release(self, getAndIncrementTimestamp())
+          peer => tell(peer, Release(self))
         }
       }
     // ---------------------------------------------------------
-    case m@Request(actor, t) =>
-      updateTimestamp(t)
-      requestQueue.enqueue(m)
-      actor ! Ack(self, getAndIncrementTimestamp())
+    case Request(actor) =>
       tryGetResource()
 
-    case m@Release(actor, t) =>
-      updateTimestamp(t)
-      requestQueue.enqueue(m)
+    case Release(actor) =>
       filterQueue(actor)
       tryGetResource()
 
-    case m@Ack(actor, t) =>
-      updateTimestamp(t)
-      requestQueue.enqueue(m)
+    case Ack(actor) =>
       tryGetResource()
   }
 
-  // not pure
-  def getAndIncrementTimestamp(): Timestamp = {
-    val old = timestamp
-    timestamp = old + 1
-    old
-  }
-
-  // not pure
-  def updateTimestamp(receive: Timestamp): Timestamp = {
-    if (receive <== timestamp) {
-      // ignore
-    } else {
-      timestamp = timestamp + (receive.num + Timestamp.delta)
-    }
-
-    timestamp
-  }
+  //  // not pure
+  //  def getAndIncrementTimestamp(): Timestamp = {
+  //    val old = timestamp
+  //    timestamp = old + 1
+  //    old
+  //  }
+  //
+  //  // not pure
+  //  def updateTimestamp(receive: Timestamp): Timestamp = {
+  //    if (receive <== timestamp) {
+  //      // ignore
+  //    } else {
+  //      timestamp = timestamp + (receive.num + Timestamp.delta)
+  //    }
+  //
+  //    timestamp
+  //  }
 
   // not pure
   /**
@@ -117,22 +108,24 @@ class Process(priority: Int) extends Actor {
     *
     * 第一个Request前面的内容都是没用的，因为第一个Request的时间是Tm，Tm前面的消息都没用
     */
-  def findFirstRequestInQueue(queue: mutable.PriorityQueue[WithTimestamp]): Option[Request] = {
-    while (queue.nonEmpty) {
-      val head = requestQueue.dequeue()
-      head match {
-        case r@Request(_, _) =>
-          // 放回去
-          queue.enqueue(r)
-          return Some(r)
-        case _ => ()
-      }
+  def findFirstRequestInQueue(queue: mutable.PriorityQueue[QueueElem]): Option[Request] = {
+    queue.dropWhile {
+      case elem@QueueElem(id, t, msg) =>
+        msg match {
+          case r@Request(_) => false
+          case _ => true
+        }
+      case _ => true
     }
-    None
-    //    requestQueue.headOption flatMap {
-    //      case r@Request(_, _) => Some(r)
-    //      case _ => findFirstRequestInQueue(requestQueue.tail)
-    //    }
+
+    if (queue.nonEmpty) {
+      val elem@QueueElem(id, t, r@Request(_)) = requestQueue.dequeue()
+      // 放回去
+      queue.enqueue(elem)
+      Some(r)
+    } else {
+      None
+    }
   }
 }
 

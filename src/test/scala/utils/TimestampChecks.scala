@@ -1,6 +1,6 @@
 package utils
 
-import mutex.Timestamp
+import common.Timestamp
 import org.scalacheck.{Arbitrary, Gen}
 
 object TimestampChecks {
